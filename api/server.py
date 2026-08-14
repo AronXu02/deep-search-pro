@@ -73,7 +73,7 @@ async def upload_files(files: List[UploadFile] = File(...), thread_id: str = For
     目标：
     1. 接收用户上传的一个或多个文件。
     2. 保存到 `updated/session_{thread_id}` 目录。
-    3. 供 Agent 在后续任务中读取和分析。
+    3. 供 Agent 在后续任务中读取和分析。  
 
     Args:
         files (List[UploadFile]): 文件对象列表。

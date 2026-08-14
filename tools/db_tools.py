@@ -140,7 +140,7 @@ def get_table_data(table_name)->str:
 def execute_sql_query(query)->str:
     """
     执行自定义查询sql语句！切记：执行之前，需要通过执行 list_sql_tables明确表名！执行get_table_data
-    明确表结构和数据格式！
+    明确表结构和数据格式
     :param query: 要执行的自定义sql语句
     :return: csv格式的数据（模拟表格数据格式）
              1.第一行是列信息，列之间使用,（英文的逗号）分割
