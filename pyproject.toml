@@ -152,6 +152,9 @@ build-backend = "setuptools.build_meta"
 [tool.uv]
 package = true
 
+[tool.fastapi]
+entrypoint = "api.server:app"
+
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["agent*", "api*", "rawflow*", "tools*", "utils*"]
