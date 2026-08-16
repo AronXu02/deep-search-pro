@@ -238,5 +238,10 @@ async def websocket_endpoint(websocket: WebSocket, thread_id: str):
         print(f"[WebSocket] 连接异常: {e}")
         manager.disconnect(websocket, thread_id)
 
-if __name__ == "__main__":
+def main():
+    """Start the FastAPI application with Uvicorn."""
     uvicorn.run("api.server:app", host="0.0.0.0", port=8000, reload=True)
+
+
+if __name__ == "__main__":
+    main()

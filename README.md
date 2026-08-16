@@ -81,7 +81,7 @@ api/monitor.py         ← 埋点监控 + 事件循环归属判断
 
 ### 环境要求
 
-- Python 3.10+
+- Python 3.12
 - 一个 OpenAI 兼容的 LLM API Key（阿里云百炼 / DeepSeek / OpenAI 都可以）
 - Tavily API Key（[免费额度注册](https://tavily.com)）
 
@@ -120,8 +120,12 @@ TAVILY_API_KEY=tvly-xxxxxxxxxxxxxxxx
 ### 第三步：启动
 
 ```bash
-python api/server.py
+uv run deep-search-pro
 ```
+
+The ASGI application entrypoint is `api.server:app`. The
+`deep-search-pro` console command registered in `pyproject.toml` starts it
+through Uvicorn.
 
 访问 `http://localhost:8000/docs` 能看到 Swagger 文档，直接在页面上试。
 
