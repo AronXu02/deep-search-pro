@@ -1,170 +1,151 @@
-# 工具调用测试计划
+# 前端页面功能测试计划
 
 ## 1. 目标与范围
 
-本计划围绕 Deep Search Pro 的“模型决定调用工具 → 工具执行 → 监控事件推送 → 返回结果”的链路制定测试策略，覆盖以下边界：
+本计划覆盖 Deep Search Pro 前端研究工作台的核心业务路径：
 
-- 主 Agent 的工具调用解析、子 Agent 调度、最终结果上报和异常收敛。
-- 6 类工具：网络搜索、数据库查询 3 个工具、RAGFlow 助手列表/提问、Markdown 生成、Markdown 转 PDF、上传文件读取。
-- 工具调用依赖的 ContextVar 会话隔离、路径解析、文件读写和 WebSocket 监控。
-- `/api/task`、`/api/upload`、`/api/download`、`/api/files`、`/ws/{thread_id}` 对工具调用链的集成行为。
+- 发送研究任务并展示用户消息、等待状态和最终结果。
+- 通过 WebSocket 接收 `session_created`、工具进度、`task_result` 和 `error` 事件。
+- 上传一个或多个文档，并在当前会话中展示上传状态。
+- 刷新生成文件列表并下载后端输出目录中的文件。
+- 新建对话、切换浏览器本地历史、关闭旧会话连接。
+- 在桌面和窄屏视口下使用页面，并保持键盘、状态播报和基本可访问性。
 
-外部 LLM、Tavily、MySQL、RAGFlow 和 Microsoft Word 均采用 mock/fake 进行确定性测试；真实服务只作为最后的受控冒烟测试。本文只记录测试方案，不修改生产代码。
+当前页面目标以 `master` 分支提交 `ed64c1b` 中的 `frontend/` 实现为行为参考。当前工作分支为 `dev`，HEAD 为 `714e670`；该分支尚未包含 `frontend/`、`tests/` 或 `package.json`。因此本文件定义测试目标和验收门槛，不把历史提交中的测试结果当作当前分支证据。
 
-## 2. 项目现状与测试基线
+## 2. 项目说明、后端契约与当前测试基线
 
-项目说明确认：主 Agent 位于 `agent/main_agent.py`，通过 `deepagents` 调度网络搜索、数据库查询和 RAGFlow 子 Agent，并直接调用 Markdown、PDF、文件读取工具；工具调用进度通过 `api/monitor.py` 推送到 WebSocket。
+README 描述的用户链路是：浏览器提交 `POST /api/task`，后端异步运行 Agent，通过 `WS /ws/{thread_id}` 推送进度和结果。当前 `api/server.py` 还提供文件上传、文件列表和文件下载接口。
 
-当前工作区状态：
-
-- 已修改：`agent/main_agent.py`、`tools/db_tools.py`。
-- 未跟踪：`.python-version`、`main.py`、`pyproject.toml`、`uv.lock`。
-- 当前 diff 主要是 `main_agent.py` 的格式整理，以及 `db_tools.py` 文档字符串调整；这些变更仍需由回归测试保护工具调用链。
-- README 要求 Python 3.10+；当前 `pyproject.toml` 声明 `requires-python = ">=3.14"`，测试环境版本应在执行前统一。
-
-已验证的现有命令：
-
-| 命令 | 当前结果 | 结论 |
+| 前端行为 | 当前后端契约 | 前端必须验证 |
 | --- | --- | --- |
-| `python api/server.py` | 项目运行入口，需要 LLM 配置和外部服务 | 可作为人工运行/冒烟入口，不是自动化测试 |
-| `.venv\\Scripts\\python.exe -m unittest discover -v` | `Ran 0 tests`，退出码 5 | 没有可执行的现有单元测试 |
-| `.venv\\Scripts\\python.exe -m pytest --collect-only -q` | `No module named pytest`，退出码 1 | pytest 未安装，无法收集测试 |
-| `pytest` | 命令不可用 | 没有全局 pytest 入口 |
+| 启动任务 | `POST /api/task`，JSON 含 `query`，可带 `thread_id`；立即返回 `status=started` 和 `thread_id` | 请求体、按钮禁用、失败恢复和会话 ID 使用正确 |
+| 实时状态 | `WS /ws/{thread_id}`；服务端对心跳返回 `pong`，监控消息使用 `type=monitor_event` | URL 编码、连接状态、事件路由、旧连接隔离和异常收敛 |
+| 上传文档 | `POST /api/upload`，multipart 含一个或多个 `files` 与 `thread_id` | 多文件提交、成功/失败提示、重试和当前会话归属 |
+| 生成文件 | `GET /api/files?path=...`，仅允许 `output` 目录 | 路径编码、列表刷新、空列表和错误提示 |
+| 下载文件 | `GET /api/download?path=...`，仅允许 `output` 目录 | 下载链接编码、文件名展示和越权响应处理 |
 
-仓库当前没有 `tests/`、测试配置或 pytest 依赖，`uv.lock` 也没有 pytest 包。建议后续统一采用 pytest + pytest-asyncio；本计划先锁定测试内容和通过条件。
+已读取的当前项目命令和结果：
+
+| 命令或状态 | 结果 | 测试基线结论 |
+| --- | --- | --- |
+| `\.venv\Scripts\python.exe --version` | Python 3.14.6 | 与当前 `pyproject.toml` 的 `>=3.12,<3.14` 声明存在环境不一致，执行自动化测试前需统一版本 |
+| `\.venv\Scripts\python.exe -m unittest discover -v` | 收集 0 个测试，退出码 1 | 当前分支没有可执行的现有测试 |
+| `pytest` | 命令不存在 | 当前分支没有 pytest 测试入口 |
+| `node --version` | v24.18.0 | 可用于后续 Node 原生测试，当前分支缺少前端测试文件 |
+| `frontend/`、`tests/`、`package.json` | 均不存在 | 前端静态检查、Node 测试和 Playwright 冒烟暂不能在当前 checkout 执行 |
+| README 启动命令 | `uv run deep-search-pro` 或 `\.venv\Scripts\python.exe api\server.py` | 这是运行/冒烟入口，不代表自动化测试通过 |
+
+`master` 的前端提交中已有 `tests/frontend-app.test.js` 和 `tests/webapp_smoke.py` 的测试雏形。后续移植到目标分支后，Node 测试可采用 `node --test tests/frontend-app.test.js`，浏览器冒烟可采用 `python tests/webapp_smoke.py`；两条命令在当前分支均不可执行。
 
 ## 3. 关键业务风险
 
-| 风险 ID | 风险 | 影响 | 优先级 |
+| ID | 风险 | 影响 | 优先级 |
 | --- | --- | --- | --- |
-| R1 | 模型调用了错误工具，或在获取信息前调用文档生成工具 | 生成内容缺少事实依据，业务流程失真 | P0 |
-| R2 | `tool_call` 缺少 `name`、`args`、`subagent_type` 或 `description` 时触发异常 | 流式任务中断，前端收不到可解释的错误事件 | P0 |
-| R3 | 会话目录、`updated/`、绝对路径或 `..` 路径解析越界 | 跨会话读写、任意文件覆盖或数据泄露 | P0 |
-| R4 | 上传文件名未做目录穿越校验 | 上传内容可能写入 `updated` 目录之外 | P0 |
-| R5 | 数据库工具允许模型直接执行任意 SQL，且未验证只读性、表名和结果上限 | 数据破坏、敏感数据外泄、长时间查询 | P0 |
-| R6 | 监控事件携带完整文件内容、SQL 或查询文本 | Cookie、密钥、业务数据和用户文件可能进入日志/WebSocket | P0 |
-| R7 | ContextVar 或 WebSocket thread_id 串台 | A 用户看到 B 用户的工具进度或文件结果 | P0 |
-| R8 | RAGFlow 查询列表为空、助手名不存在或流式提问中途失败 | 空列表索引异常，临时会话未删除，资源泄漏 | P1 |
-| R9 | Tavily、MySQL、RAGFlow、Word 或文件解析器失败时错误语义不一致 | Agent 无法决定重试、降级或结束任务 | P1 |
-| R10 | 工具事件重复、乱序、缺少 session_created/task_result 或跨事件循环投递失败 | 前端进度条错误，任务状态不可观测 | P1 |
-| R11 | Markdown/PDF 输出路径、扩展名和覆盖行为不一致 | 文件生成成功提示与实际文件不一致 | P1 |
-| R12 | 文件读取对空文件、编码、损坏 PDF/Office/Excel 和超大文件处理不稳定 | 任务失败或资源消耗过高 | P1 |
+| R1 | 任务请求未携带当前 `thread_id`，或响应 ID 未被页面采用 | WebSocket 事件落入错误会话，用户看不到自己的结果 | P0 |
+| R2 | 旧 WebSocket 在新建或切换历史后仍更新页面 | 旧任务结果覆盖新会话，产生跨会话串台 | P0 |
+| R3 | `monitor_event` 的事件类型、空字段或异常消息未被安全处理 | 页面卡在忙碌状态，用户无法判断任务是否结束 | P0 |
+| R4 | 发送、上传和刷新文件的错误路径未恢复按钮/输入状态 | 页面无法重试，用户重复提交或误以为任务仍在运行 | P0 |
+| R5 | 上传文件与会话 ID 绑定错误，或重复选择同名文件覆盖 UI 状态 | Agent 读取错误资料，文件面板与后端实际状态不一致 | P0 |
+| R6 | 文件名、任务结果、事件消息以 HTML 解释 | 存在 DOM 注入风险，页面展示内容可执行或破坏布局 | P0 |
+| R7 | 文件路径未正确 URL 编码，或前端把越权响应当作成功文件 | 生成文件无法下载，错误地暴露后端路径边界 | P0 |
+| R8 | 本地历史保存了 pending 消息、错误会话或错误输出目录 | 刷新/切换后历史内容失真，用户下载到错误文件 | P1 |
+| R9 | 心跳、连接关闭、重连和服务端消息解析分支不完整 | 在线状态错误，实时反馈丢失或出现未处理异常 | P1 |
+| R10 | 窄屏布局、焦点顺序、键盘快捷键或状态播报不可用 | 移动端和键盘用户无法完成核心任务 | P1 |
+| R11 | 页面调用了后端未提供的路由，或错误假定历史查询接口存在 | 集成环境必然失败，前端功能边界失真 | P0 |
+| R12 | 后端上传接口直接拼接 `file.filename`，未由接口测试验证路径安全 | 可能发生目录穿越或越权写入；前端 UI 测试无法单独证明该边界安全 | P0 |
 
 ## 4. 测试策略与覆盖目标
 
-采用测试金字塔：大量纯单元测试，少量组件/集成测试，最后安排少量真实依赖冒烟测试。
+采用前端测试金字塔：快速的 JavaScript 单元/交互测试为主，少量接口契约测试和 Playwright 浏览器冒烟作为高置信度检查。
 
-覆盖目标以业务分支为准：
+### 4.1 静态与契约测试
 
-- P0 规则、路径安全、会话隔离、监控脱敏、工具异常路径：分支覆盖 100%。
-- 工具参数转发、返回值格式、资源清理：每个工具至少覆盖成功、空结果、外部异常 3 类场景。
-- 主 Agent 流式解析：覆盖子 Agent 调用、直接最终结果、无消息、空内容、多个 tool call、格式异常和异常收敛。
-- API/WebSocket：覆盖每个接口的成功、无效输入、越权输入；至少覆盖两个 thread_id 的并发隔离。
-- 真实外部服务只做人工或隔离环境冒烟，不把网络、凭据、第三方数据状态作为 CI 通过条件。
+- 检查 `index.html` 引用的 CSS、JavaScript、元素 ID 与脚本查询项一致。
+- 执行 `node --check frontend/app.js`，禁止语法错误和模块加载错误。
+- 扫描前端请求，只允许 `/api/task`、`/api/upload`、`/api/files`、`/api/download` 和 `/ws/{thread_id}`；不出现未定义的历史查询、登录或其他后端路由。
+- 验证 HTTP API 的方法、JSON/multipart 字段、URL 编码和 WebSocket `ws`/`wss` 协议转换。
+- 对后端使用 FastAPI 测试客户端验证成功、无效输入、输出目录越权、缺失文件和上传文件名安全；该组测试作为前端集成的契约前置条件。
 
-## 5. 测试项与示例用例
+### 4.2 JavaScript 单元与交互测试
 
-### 5.1 路径、上下文与文件安全（P0）
+使用 Node 原生 `node:test`，以 fake DOM、fake `fetch`、fake `WebSocket` 和内存 `localStorage` 隔离浏览器与真实服务。重点覆盖：
 
-| 用例 | 类型 | 重点断言 |
+| 区域 | 示例用例 | 关键断言 |
 | --- | --- | --- |
-| `resolve_path` 普通相对路径、嵌套目录、虚拟前缀 `/workspace`、`/mnt/data`、`/home/user` | 单元 | 结果落在当前 session 目录，路径分隔符稳定 |
-| `session_123/session_123/file.md`、`output/file.md`、会话内绝对路径 | 单元 | 不产生重复 session 嵌套 |
-| 会话外绝对路径、`..`、符号链接和不存在父目录 | 单元/安全 | 明确拒绝、保留待校验状态或不允许工具写入；不能通过工具写入任意位置 |
-| `updated/` 路径和跨目录前缀 | 单元/安全 | 只解析到预期上传根目录；路径中伪造 `updated/` 不能扩大访问范围 |
-| 两个异步任务分别设置 session/thread ContextVar | 异步单元 | 工具读取的目录和监控目标始终属于各自任务；任务结束后上下文恢复为 `None` |
-| `/api/upload` 使用 `a.txt`、`sub/a.txt`、`..\\outside.txt`、绝对路径文件名 | API 集成 | 只允许安全文件名或安全相对路径，越界上传被拒绝且不产生越界文件 |
-| `/api/download` 和 `/api/files` 访问 output 外部路径、目录、缺失文件 | API 集成 | 拒绝越权，不泄露外部路径内容；正常文件返回正确元数据/文件流 |
+| 初始渲染 | 空会话、无历史、无文件 | 空态文案、计数器、连接状态和输入控件正确 |
+| 发送任务 | 正常文本、空白文本、重复点击、Enter/Shift+Enter | trim 规则、乐观消息、单次请求、按钮忙碌态和换行行为正确 |
+| API 失败 | task 返回非 2xx、返回体缺少 `started`、网络拒绝 | 显示稳定错误，恢复按钮，保留可重试状态，不产生未处理 Promise |
+| WebSocket | 连接成功、连接失败、`pong`、未知事件、非法 JSON、`task_result`、`error` | 事件只更新当前页面，最终状态可结束，非法消息不使脚本崩溃 |
+| 会话切换 | 新建对话、切换本地历史、旧 socket 迟到消息 | 关闭旧连接，清空旧状态，迟到消息不改变新会话 |
+| 上传 | 单文件、多文件、接口失败、重复选择同一文件、重复文件名 | FormData 字段正确，文件列表不丢失，失败后可重试，状态与返回值一致 |
+| 生成文件 | 空列表、排序列表、刷新失败、特殊文件名 | 正确显示大小/时间，链接参数编码，文件名使用 `textContent`，不解释 HTML |
+| 本地历史 | 保存、读取、损坏 JSON、pending 消息、最多 30 条 | 只保存完成消息，损坏数据降级为空，历史切换恢复会话状态 |
+| 安全与健壮性 | `<img>`、引号、超长文本、缺失 `data`、空 result | 页面内容无注入，渲染不抛异常，长内容可滚动或换行 |
 
-### 5.2 直接工具行为（P0/P1）
+目标：P0 分支和状态转换达到 100% 覆盖；页面逻辑整体达到至少 80% 行覆盖率和 75% 分支覆盖率。覆盖率工具未配置前，不能用“测试文件存在”代替覆盖率证据。
 
-所有 `@tool` 测试应通过 `.invoke()` 或工具的底层函数调用，mock `monitor.report_tool`，并断言参数和调用顺序。
+### 4.3 浏览器端到端与视觉检查
 
-| 工具 | 必测场景 | 关键断言 |
-| --- | --- | --- |
-| `internet_search` | 默认参数、`news/finance/general`、自定义 `max_results`、原文开关、Tavily 异常 | Tavily 参数原样转发；先上报一次工具事件；异常转换为稳定错误结果或统一异常契约 |
-| `list_sql_tables` | 有表、无表、连接错误、缺失环境变量、端口非法 | SQL 为 `show tables`；结果格式稳定；配置错误在连接前可解释地失败；不记录密码 |
-| `get_table_data` | 合法表名、空表、100 行边界、数据库错误、恶意表名 | 查询包含明确行数上限；列头和行格式稳定；非法标识符不能注入任意 SQL |
-| `execute_sql_query` | 只读查询、有结果、无结果、数据库错误、写入/多语句/超长查询 | 只允许约定的查询类型和范围；无结果有明确语义；结果大小受控；禁止未授权写操作 |
-| `get_assistant_list` | 多助手、多知识库、无助手、缺少 datasets、SDK 异常 | 不因空列表或字段缺失崩溃；返回内容不包含凭据；monitor 参数结构一致 |
-| `create_ask_delete` | 助手存在、无助手、流式多片段、提问异常、删除异常 | 先按名称选择助手；完整拼接流片段；成功和失败路径都验证临时会话清理；删除失败可观测 |
-| `generate_markdown` | 自动补 `.md`、session 默认路径、子目录、覆盖已有文件、写入异常 | 文件内容和编码正确；目录范围符合策略；返回结果与实际文件一致；监控不发送完整敏感内容 |
-| `convert_md_to_pdf` | 缺失源文件、默认 PDF 名、指定输出名、错误扩展名、Word 转换成功/失败 | 只解析 session 内文件；源文件不存在时不调用 Word；`.md/.pdf` 后缀稳定；转换异常可解释且临时文件清理 |
-| `read_file_content` | md/txt、docx、pdf、xlsx/xls、缺失文件、损坏文件、未知二进制、空内容 | 文件类型分派正确；解析失败返回稳定错误；路径越界被拒绝；Excel 预览和统计不泄露不必要数据 |
+使用 Playwright 启动静态服务器，注入 fake 后端，执行真实 DOM 交互：
 
-### 5.3 主 Agent 工具调用与流程规则（P0）
+1. 打开页面，确认标题、空态、连接状态和主要控件可见。
+2. 上传模拟文件，确认失败提示、文件输入清空和同文件重试能力。
+3. 输入任务并发送，确认 WebSocket 建立、用户消息立即出现、`session_created` 更新文件目录、`task_result` 展示助手结果并刷新生成文件。
+4. 点击新建对话，再注入旧 socket 的迟到结果，确认旧结果不出现在新会话。
+5. 在 390×844、768×1024、1440×1000 视口检查无横向溢出、核心控件可操作和生成文件可下载。
+6. 检查控制台无 error、页面无 uncaught exception；对 `aria-live`、表单标签、键盘焦点和按钮可见名称做人工或自动化断言。
 
-使用 fake `main_agent.astream()` 产生确定性 chunk，避免真实 LLM 参与。
+真实后端联调再单独执行一次：启动 API 和静态服务器，使用隔离的测试目录与测试文件，验证请求契约、WebSocket 事件和文件闭环。真实 LLM 和第三方工具保持 mock 或受控替身。
 
-1. `model` 节点产生 `task` tool call：断言 `report_assistant(subagent_type, description)` 只上报一次，字段按调用内容传递。
-2. 同一 chunk 包含多个 tool call：逐个处理，未知工具名不应导致整个任务崩溃，并产生可定位事件。
-3. `model` 节点产生最终文本：断言调用 `report_task_result`，不重复上报助手调用。
-4. 空 state、缺少 `messages`、空列表、非列表消息、`tool_calls=None`、消息没有 `content`：任务可结束或发出统一错误事件。
-5. `tool_call` 缺字段、args 非字典、字段类型错误：禁止 `KeyError` 泄漏到后台任务；错误事件包含 session_id，且不包含秘钥和完整用户内容。
-6. `astream` 抛出异常：断言收到一个错误事件，ContextVar 在 `finally` 中恢复，后续任务不继承旧 session/thread。
-7. 有上传文件时：文件复制到当前 output session，提示词包含文件名；文件不存在、同名覆盖和复制失败均有测试。
-8. 工作流顺序：当需求要求生成文件时，先有信息获取工具/子 Agent 成功结果，后调用文档生成；缺少前置结果时应阻止生成或返回可解释错误。该规则当前主要写在 prompt 中，计划要求补充可验证的流程契约测试。
+## 5. 暂不覆盖的内容
 
-### 5.4 监控与 WebSocket（P0/P1）
+- LLM 对自然语言的理解质量、工具选择质量、报告事实正确性和答案文风。
+- Tavily、MySQL、RAGFlow、Word/PDF 转换的真实可用性、配额、外部数据质量和版式一致性。
+- 高并发、长时间运行、浏览器崩溃恢复、服务进程重启后的任务恢复和压力容量。
+- 完整认证、权限模型、CORS 安全评审、生产 CSP、供应链依赖审计和全量渗透测试。
+- 浏览器跨设备同步历史、服务端历史持久化，以及不同浏览器对 `localStorage` 的全部差异。
+- 超大文件性能、恶意压缩包、带宏 Office 文件、复杂 PDF 主动内容和真实敏感数据。
+- CSS 像素级跨浏览器视觉一致性；本轮只检查关键断点、溢出、可读性和核心交互。
 
-| 用例 | 关键断言 |
-| --- | --- |
-| `report_tool`、`report_assistant`、`report_session_dir`、`report_task_result` | event type、message、data 字段和 timestamp 存在且类型正确 |
-| 无 WebSocket manager、无 thread context | 控制台/脚本 fallback 不抛异常，不误发到未知会话 |
-| 同事件循环发送、跨线程发送、发送协程抛错 | 投递方式正确，异常被隔离，不阻塞工具主流程 |
-| 两个 thread_id 同时连接并接收事件 | 每条消息只到目标连接，断开后连接表清理 |
-| monitor 参数含 SQL、文件内容、Token 形态字符串 | 默认脱敏/截断；测试通过前禁止把敏感完整值写入 WebSocket 或日志 |
-| `/ws/{thread_id}` 连接、心跳、断开、异常 | `pong` 内容正确；断开后 manager 不残留连接 |
+后端上传路径安全仍属于 P0 契约测试范围。前端计划不会把它标记为仅靠浏览器测试即可完成的风险。
 
-### 5.5 API 与端到端冒烟（P1）
+## 6. 执行顺序
 
-使用 FastAPI `TestClient`/异步客户端并 monkeypatch `run_deep_agent`：
+1. 确认目标分支包含前端页面和测试夹具；在当前 `dev` 分支完成移植前，保持本计划为未执行状态。
+2. 固化后端路由、响应字段、WebSocket 事件和本地历史语义，形成契约 fixture。
+3. 先执行 HTML 资源检查、JavaScript 语法检查和请求路由白名单检查。
+4. 执行 JavaScript 单元与交互测试，优先修复 P0 的状态、会话、错误和注入用例。
+5. 执行后端 API 契约测试，覆盖上传/下载路径边界和双 `thread_id` 隔离。
+6. 启动静态服务器，执行 Playwright 浏览器冒烟、窄屏检查和控制台错误检查。
+7. 在隔离测试目录中执行一次真实后端联调；记录服务启动、端口、依赖替身和事件序列。
+8. 汇总测试命令、退出码、通过/失败/跳过数量、覆盖率、截图和未覆盖项，完成回归门禁。
 
-- `/api/task` 有 query、缺 query、空 query、提供/不提供 thread_id：立即返回 `started` 和稳定 thread_id；后台任务只创建一次。
-- `/api/task` 的后台 Agent 失败：HTTP 已响应不被拖挂，错误通过监控事件可见。
-- 上传 → Agent 读取 → Markdown 生成 → 下载：在 fake 工具链下验证 session 文件闭环和结果事件闭环。
-- WebSocket 建立后调用 `/api/task`：只收到对应 thread_id 的 `session_created`、工具/助手进度、`task_result` 或 `error`。
-- 并发提交两个任务：输出目录、上下文、WebSocket 事件和最终文件互不混淆。
-
-## 6. 暂不覆盖的内容
-
-以下内容暂不作为本轮工具调用测试的通过条件：
-
-- LLM 是否能稳定理解自然语言、选择最优工具和编写高质量答案；只验证可观察的调用契约和流程顺序。
-- Tavily、MySQL、RAGFlow 的真实网络可用性、配额、数据正确性和服务端性能；这些放入隔离环境冒烟。
-- Microsoft Word COM 在不同 Office 版本、桌面会话、打印机/字体环境下的版式一致性；先 mock 转换器，再安排 Windows 专项冒烟。
-- 高并发压测、长时间运行、断电恢复、进程重启后的 checkpoint 持久化；当前使用 `InMemorySaver`，暂不验证持久化语义。
-- 认证、权限模型和 CORS 策略的完整安全评审；本计划只验证工具调用相关的路径边界和会话隔离。
-- 依赖库内部实现、框架自身的 WebSocket/Agent 调度逻辑，以及 `rawflow/` 下独立示例。
-- 大文件性能、恶意压缩包、复杂 Office 宏和 PDF 主动内容；后续安全专项另立计划。
-
-## 7. 执行顺序
-
-1. **环境与测试基座**：统一 Python 版本，添加 pytest、pytest-asyncio、httpx 等测试依赖；建立 `tests/unit`、`tests/integration`、`tests/contract` 和临时目录 fixture。此步骤只改测试配置/测试代码。
-2. **纯函数和安全边界**：先测 `resolve_path`、ContextVar、数据库配置解析、结果格式化，优先消除越界和串台风险。
-3. **工具单元测试**：按数据库 → RAGFlow → 文件读写 → Markdown/PDF → Tavily 执行；所有第三方调用 mock，先验证事件再验证外部调用和返回值。
-4. **监控组件测试**：覆盖事件 schema、thread 路由、事件循环分支、断开清理和脱敏断言。
-5. **主 Agent 流程测试**：注入 fake stream，覆盖正常调用、异常 chunk、未知工具、前置顺序和 ContextVar 清理。
-6. **API 集成测试**：覆盖 task/upload/download/files/WebSocket，以及双 session 并发隔离。
-7. **受控冒烟**：在明确授权、隔离凭据和测试数据下运行真实 Tavily/MySQL/RAGFlow/Word；失败只标记外部依赖状态，不阻断纯单元测试结果。
-8. **回归与报告**：执行全量测试、覆盖率和静态检查，记录失败用例、外部依赖版本、Python 版本与工作区 commit。
-
-## 8. 通过条件
+## 7. 通过条件
 
 ### 必须满足
 
-- 所有 P0 用例通过，P0 失败时不得合并涉及工具调用链的变更。
-- 工具调用参数、事件类型、目标 thread_id、文件归属和错误语义均有可重复断言。
-- 任意 session 的工具调用都不能读写其他 session 或项目根目录外的目标。
-- SQL、文件内容、Token 形态输入不会以完整值进入 monitor/WebSocket 测试捕获的 payload。
-- 外部依赖失败可被测试捕获，后台任务不会产生未处理异常；ContextVar、RAG 临时会话、WebSocket 连接和临时 HTML 均完成清理。
-- 全量自动化测试命令退出码为 0；覆盖率达到第 4 节目标，或对未达标项给出明确豁免和后续 issue。
+- 目标分支的静态检查、Node 单元/交互测试、API 契约测试和 Playwright 冒烟命令均以退出码 0 结束。
+- 所有 P0 用例通过；任一 P0 失败时，前端页面变更不满足合入条件。
+- 任务、上传、文件列表、下载和 WebSocket 请求严格匹配当前后端契约，未调用未提供的接口。
+- 至少两个 `thread_id` 的事件、消息、socket、上传文件和生成文件状态互不串台。
+- 任务失败、上传失败、连接失败、非法消息和文件列表失败后，页面可见错误、按钮状态可恢复、用户可重试。
+- 特殊文件名、任务结果和事件文本均按文本渲染；测试中不能出现由输入内容生成的 `img`、`script` 或可执行 DOM。
+- 390px 宽度下无横向滚动，核心控件可通过键盘使用，状态区域有可读的辅助技术播报。
+- P0 覆盖率达到 100%；整体覆盖率达到第 4 节目标，缺口必须有明确豁免、风险说明和后续任务。
+- 报告记录实际命令、退出码、Python/Node/浏览器版本、测试数据范围和当前 commit。当前 checkout 的“0 tests”基线不能作为通过证据。
 
-### 可接受的受控失败
+### 可接受的受控结果
 
-- 真实外部服务冒烟因凭据、网络、配额或服务状态失败时，不影响 mock 单元/集成测试通过；报告必须标明外部失败原因和时间。
-- Word COM 专项测试只能在具备 Word 的 Windows 机器执行；CI 中使用 fake converter，并保留专项测试结果。
+- 真实 LLM、Tavily、MySQL、RAGFlow 或 Word 依赖因凭据、网络、配额或平台差异无法运行时，只影响外部联调记录，不影响 fake 后端下的页面验收；报告需标明原因和时间。
+- 视觉检查可以存在已登记的非阻断差异，但 P0 交互、可读性、无障碍核心控件和窄屏布局不能豁免。
 
-## 9. 交付与证据
+## 8. 测试证据交付
 
-首次实现测试后，测试报告至少应包含：执行命令、Python/依赖版本、通过/失败/跳过数量、覆盖率、P0 结果、外部冒烟状态，以及未覆盖项。若工具契约发生变化，应同步更新本计划和对应的 contract test。
+完成实现后，至少交付以下证据：
+
+- `node --check` 与 Node 测试的完整命令和退出码。
+- API 契约测试的通过/失败数量，以及路径安全和双会话隔离结果。
+- Playwright 浏览器版本、视口、控制台错误结果、关键流程截图和退出码。
+- 覆盖率报告、跳过项、暂不覆盖项和剩余风险。
+- 当前工作区 diff，确认本轮只包含获准的测试/文档变更。
