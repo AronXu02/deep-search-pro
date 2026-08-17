@@ -1,0 +1,71 @@
+:root {
+  color-scheme: dark;
+  font-family: "Segoe UI", sans-serif;
+  --background: #07111f;
+  --text: #edf5ff;
+  --panel: #102238;
+  --line: #2d4763;
+  --accent: #58d6b0;
+  background: var(--background);
+  color: var(--text);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  background: var(--background);
+}
+
+main {
+  width: min(960px, 100%);
+  margin: 0 auto;
+  padding: 32px;
+}
+
+textarea {
+  display: block;
+  width: 100%;
+  margin: 8px 0;
+  padding: 12px;
+  color: inherit;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+button {
+  padding: 8px 14px;
+  color: var(--background);
+  background: var(--accent);
+  border: 0;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+#message-list,
+#uploaded-list,
+#generated-list,
+#history-list {
+  display: grid;
+  gap: 8px;
+  margin: 16px 0;
+}
+
+@media (max-width: 720px) {
+  main {
+    padding: 16px;
+  }
+
+  h1 {
+    font-size: 24px;
+  }
+}

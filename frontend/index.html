@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Deep Search Pro</title>
+    <link rel="stylesheet" href="./styles.css">
+  </head>
+  <body>
+    <main>
+      <h1>研究助手</h1>
+      <button id="new-chat-button" type="button">新建对话</button>
+      <div>历史对话：<span id="history-count">0</span></div>
+      <section id="history-list"></section>
+      <form id="composer-form">
+        <label for="query-input">研究问题</label>
+        <textarea id="query-input" rows="4"></textarea>
+        <button id="send-button" type="submit">发送</button>
+      </form>
+      <section id="message-list" aria-live="polite"></section>
+      <label for="file-input">上传文档</label>
+      <input id="file-input" type="file" multiple>
+      <div>已上传：<span id="uploaded-count">0</span></div>
+      <section id="uploaded-list" aria-live="polite"></section>
+      <h2>已生成文件</h2>
+      <section id="generated-list" aria-live="polite"></section>
+    </main>
+    <script src="./app.js"></script>
+  </body>
+</html>
